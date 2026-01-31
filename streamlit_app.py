@@ -9,7 +9,8 @@ st.set_page_config(page_title="Sign Language Recognition")
 def load_model():
     return tf.keras.models.load_model(
         "sign_language_model.keras",
-        compile=False
+        compile=False,
+        safe_mode=False
     )
 
 model = load_model()
@@ -21,7 +22,7 @@ file = st.file_uploader("Choose an image", type=["jpg", "png", "jpeg"])
 
 if file:
     image = Image.open(file).convert("RGB")
-    image = image.resize((224, 224))  # adjust if needed
+    image = image.resize((224, 224))   # change only if your model needs
     arr = np.array(image) / 255.0
     arr = np.expand_dims(arr, axis=0)
 
