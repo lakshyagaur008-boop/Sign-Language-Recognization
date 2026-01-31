@@ -1,6 +1,5 @@
 import streamlit as st
 import numpy as np
-import cv2
 import tensorflow as tf
 import mediapipe as mp
 from PIL import Image
@@ -13,7 +12,7 @@ st.set_page_config(
 )
 
 st.title("🤟 Sign Language Recognition")
-st.write("Use your camera to capture a hand sign and predict it using AI.")
+st.write("Capture a hand sign using your camera and predict it with AI.")
 
 # ---------------- LOAD MODEL ----------------
 @st.cache_resource
@@ -27,29 +26,22 @@ mp_holistic = mp.solutions.holistic
 mp_drawing = mp.solutions.drawing_utils
 
 # ---------------- CLASS LABELS ----------------
-# ⚠️ CHANGE this to match your training labels
-CLASS_NAMES = [
-    "Hello",
-    "Thanks",
-    "Yes",
-    "No"
-]
+CLASS_NAMES = ["Hello", "Thanks", "Yes", "No"]  # update if needed
 
 # ---------------- FEATURE EXTRACTION ----------------
 def extract_keypoints(results):
-    pose = np.array([[res.x, res.y, res.z] for res in results.pose_landmarks.landmark]).flatten() if results.pose_landmarks else np.zeros(33 * 3)
-    face = np.array([[res.x, res.y, res.z] for res in results.face_landmarks.landmark]).flatten() if results.face_landmarks else np.zeros(468 * 3)
-    lh = np.array([[res.x, res.y, res.z] for res in results.left_hand_landmarks.landmark]).flatten() if results.left_hand_landmarks else np.zeros(21 * 3)
-    rh = np.array([[res.x, res.y, res.z] for res in results.right_hand_landmarks.landmark]).flatten() if results.right_hand_landmarks else np.zeros(21 * 3)
+    pose = np.array([[l.x, l.y, l.z] for l in results.pose_landmarks.landmark]).flatten() if results.pose_landmarks else np.zeros(33 * 3)
+    face = np.array([[l.x, l.y, l.z] for l in results.face_landmarks.landmark]).flatten() if results.face_landmarks else np.zeros(468 * 3)
+    lh = np.array([[l.x, l.y, l.z] for l in results.left_hand_landmarks.landmark]).flatten() if results.left_hand_landmarks else np.zeros(21 * 3)
+    rh = np.array([[l.x, l.y, l.z] for l in results.right_hand_landmarks.landmark]).flatten() if results.right_hand_landmarks else np.zeros(21 * 3)
     return np.concatenate([pose, face, lh, rh])
 
 # ---------------- CAMERA INPUT ----------------
-img_file = st.camera_input("📸 Capture a hand sign")
+img_file = st.camera_input("📸 Capture a sign")
 
-if img_file is not None:
-    image = Image.open(img_file)
+if img_file:
+    image = Image.open(img_file).convert("RGB")
     frame = np.array(image)
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
     with mp_holistic.Holistic(
         static_image_mode=True,
@@ -57,27 +49,18 @@ if img_file is not None:
         min_detection_confidence=0.5
     ) as holistic:
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = holistic.process(rgb)
+        results = holistic.process(frame)
 
         keypoints = extract_keypoints(results)
         keypoints = np.expand_dims(keypoints, axis=0)
 
         prediction = model.predict(keypoints)
         predicted_class = CLASS_NAMES[np.argmax(prediction)]
-        confidence = np.max(prediction)
+        confidence = float(np.max(prediction))
 
-        # Draw landmarks
-        mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS)
-        mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
-        mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
-
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        st.image(frame, caption="Processed Image", use_column_width=True)
-
+        st.image(frame, caption="Captured Image", use_column_width=True)
         st.success(f"### ✅ Prediction: **{predicted_class}**")
         st.info(f"Confidence: **{confidence:.2f}**")
 
-# ---------------- FOOTER ----------------
 st.markdown("---")
-st.caption("🚀 AI-powered Sign Language Recognition | Hackathon Ready")
+st.caption("🚀 Hackathon-ready Sign Language Recognition Web App")
