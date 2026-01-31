@@ -1,6 +1,6 @@
 streamlit
 tensorflow==2.20.0
 mediapipe
-opencv-python-headless
+opencv-python-headless==4.9.0.80
 numpy
 pillow
