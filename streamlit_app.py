@@ -3,27 +3,30 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image
 
-st.set_page_config(page_title="Sign Language Recognition", layout="centered")
+st.set_page_config(page_title="Sign Language Recognition")
 
 @st.cache_resource
 def load_model():
-    return tf.keras.models.load_model("sign_language_model.keras")
+    return tf.keras.models.load_model(
+        "sign_language_model.keras",
+        compile=False
+    )
 
 model = load_model()
 
 st.title("🤟 Sign Language Recognition")
-st.write("Upload a hand image to predict the sign")
+st.write("Upload an image to predict the sign")
 
-uploaded_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
+file = st.file_uploader("Choose an image", type=["jpg", "png", "jpeg"])
 
-if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
-    image = image.resize((224, 224))  # adjust to your model
-    img_array = np.array(image) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
+if file:
+    image = Image.open(file).convert("RGB")
+    image = image.resize((224, 224))  # adjust if needed
+    arr = np.array(image) / 255.0
+    arr = np.expand_dims(arr, axis=0)
 
-    prediction = model.predict(img_array)
-    predicted_class = np.argmax(prediction)
+    preds = model.predict(arr)
+    label = np.argmax(preds)
 
-    st.success(f"Predicted Sign: {predicted_class}")
+    st.success(f"Predicted Sign: {label}")
     st.image(image, use_container_width=True)
