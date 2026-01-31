@@ -1,108 +1,129 @@
 import streamlit as st
 import cv2
 import numpy as np
-import mediapipe as mp
 import tensorflow as tf
-from collections import deque
+import mediapipe as mp
 
-# ---------------- CONFIG ----------------
-WORDS = ["goodbye", "hello", "no", "please", "yes", "thanks", "sorry"]
-SEQUENCE_LENGTH = 10
-MODEL_PATH = "sign_language_model.h5"
+# -------------------------------
+# Streamlit Page Config
+# -------------------------------
+st.set_page_config(
+    page_title="Sign Language Recognition",
+    page_icon="🤟",
+    layout="centered"
+)
 
-# ---------------- STREAMLIT UI ----------------
-st.set_page_config(page_title="Sign Language Detection", layout="centered")
-st.title("🤟 Sign Language Detection")
-st.write("Live sign language prediction using camera")
+st.title("🤟 Sign Language Recognition")
+st.write("Capture a hand sign using your camera and get the predicted gesture.")
 
-# ---------------- LOAD MODEL ----------------
+# -------------------------------
+# Load MediaPipe Holistic (cached)
+# -------------------------------
 @st.cache_resource
-def load_model_cached():
-    return tf.keras.models.load_model(MODEL_PATH)
+def load_holistic():
+    return mp.solutions.holistic.Holistic(
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
 
-model = load_model_cached()
+holistic = load_holistic()
 
-# ---------------- MEDIAPIPE ----------------
-mp_holistic = mp.solutions.holistic
-mp_drawing = mp.solutions.drawing_utils
+# -------------------------------
+# Load Trained Model (KERAS format)
+# -------------------------------
+@st.cache_resource
+def load_model():
+    return tf.keras.models.load_model("sign_language_model.keras")
 
-# ---------------- KEYPOINT EXTRACTION ----------------
-# IMPORTANT: EXACTLY 225 features
+model = load_model()
+
+# -------------------------------
+# Class Labels (EDIT if needed)
+# -------------------------------
+CLASS_NAMES = [
+    "HELLO",
+    "THANK YOU",
+    "YES",
+    "NO",
+    "I LOVE YOU"
+]
+
+# -------------------------------
+# Feature Extraction Function
+# -------------------------------
 def extract_keypoints(results):
     pose = (
-        np.array([[p.x, p.y, p.z] for p in results.pose_landmarks.landmark]).flatten()
-        if results.pose_landmarks
-        else np.zeros(33 * 3)
+        np.array([[res.x, res.y, res.z, res.visibility]
+                  for res in results.pose_landmarks.landmark]).flatten()
+        if results.pose_landmarks else np.zeros(33 * 4)
+    )
+
+    face = (
+        np.array([[res.x, res.y, res.z]
+                  for res in results.face_landmarks.landmark]).flatten()
+        if results.face_landmarks else np.zeros(468 * 3)
     )
 
     lh = (
-        np.array([[p.x, p.y, p.z] for p in results.left_hand_landmarks.landmark]).flatten()
-        if results.left_hand_landmarks
-        else np.zeros(21 * 3)
+        np.array([[res.x, res.y, res.z]
+                  for res in results.left_hand_landmarks.landmark]).flatten()
+        if results.left_hand_landmarks else np.zeros(21 * 3)
     )
 
     rh = (
-        np.array([[p.x, p.y, p.z] for p in results.right_hand_landmarks.landmark]).flatten()
-        if results.right_hand_landmarks
-        else np.zeros(21 * 3)
+        np.array([[res.x, res.y, res.z]
+                  for res in results.right_hand_landmarks.landmark]).flatten()
+        if results.right_hand_landmarks else np.zeros(21 * 3)
     )
 
-    return np.concatenate([pose, lh, rh])  # 99 + 63 + 63 = 225
+    return np.concatenate([pose, face, lh, rh])
 
-# ---------------- CAMERA INPUT ----------------
-st.info("Allow camera access and show a sign clearly")
+# -------------------------------
+# Camera Input (Browser-based)
+# -------------------------------
+img_file = st.camera_input("📸 Take a photo")
 
-camera = st.camera_input("📸 Camera")
+if img_file is not None:
+    # Convert image to OpenCV format
+    file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-sequence = deque(maxlen=SEQUENCE_LENGTH)
+    # Convert BGR → RGB
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_rgb = np.ascontiguousarray(image_rgb, dtype=np.uint8)
 
-if camera is not None:
-    # Convert Streamlit image to OpenCV format
-    bytes_data = camera.getvalue()
-    frame = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+    # MediaPipe processing
+    results = holistic.process(image_rgb)
 
-    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # Draw landmarks
+    mp_drawing = mp.solutions.drawing_utils
+    mp_holistic = mp.solutions.holistic
 
-    with mp_holistic.Holistic(
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    ) as holistic:
+    mp_drawing.draw_landmarks(
+        image, results.face_landmarks, mp_holistic.FACE_CONNECTIONS
+    )
+    mp_drawing.draw_landmarks(
+        image, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS
+    )
+    mp_drawing.draw_landmarks(
+        image, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS
+    )
+    mp_drawing.draw_landmarks(
+        image, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS
+    )
 
-        results = holistic.process(image_rgb)
+    # Display image
+    st.image(image, channels="BGR", caption="Captured Image")
 
-        # Draw landmarks
-        if results.pose_landmarks:
-            mp_drawing.draw_landmarks(
-                frame, results.pose_landmarks, mp_holistic.POSE_CONNECTIONS
-            )
-        if results.left_hand_landmarks:
-            mp_drawing.draw_landmarks(
-                frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS
-            )
-        if results.right_hand_landmarks:
-            mp_drawing.draw_landmarks(
-                frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS
-            )
+    # Extract keypoints & predict
+    keypoints = extract_keypoints(results)
+    keypoints = np.expand_dims(keypoints, axis=0)
 
-        keypoints = extract_keypoints(results)
-        sequence.append(keypoints)
+    prediction = model.predict(keypoints, verbose=0)[0]
+    predicted_class = CLASS_NAMES[np.argmax(prediction)]
+    confidence = np.max(prediction)
 
-        # Debug check (remove later if you want)
-        st.caption(f"Keypoints per frame: {len(keypoints)}")
-
-        if len(sequence) == SEQUENCE_LENGTH:
-            res = model.predict(
-                np.expand_dims(sequence, axis=0),
-                verbose=0
-            )[0]
-
-            predicted_word = WORDS[np.argmax(res)]
-            confidence = float(np.max(res))
-
-            st.success(f"🧠 Prediction: **{predicted_word}**")
-            st.progress(confidence)
-
-    st.image(frame, channels="BGR")
-
-else:
-    st.warning("Waiting for camera input…")
+    # Show result
+    st.subheader("🧠 Prediction")
+    st.success(f"**{predicted_class}**")
+    st.write(f"Confidence: `{confidence:.2f}`")
